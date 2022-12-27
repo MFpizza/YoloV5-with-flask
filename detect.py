@@ -176,6 +176,11 @@ def run(
 
             # Stream results
             im0 = annotator.result()
+            ret,buffer=cv2.imencode('.jpg',im0)
+            frame=buffer.tobytes()
+            yield(b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+
             if view_img:
                 if platform.system() == 'Linux' and p not in windows:
                     windows.append(p)
@@ -255,7 +260,22 @@ def main(opt):
     check_requirements(exclude=('tensorboard', 'thop'))
     run(**vars(opt))
 
+from flask import Flask,render_template,Response
+import cv2
+
+app=Flask(__name__)
+
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/video')
+def video():
+    return Response(run(**vars(opt)),mimetype='multipart/x-mixed-replace; boundary=frame')
+
 
 if __name__ == "__main__":
     opt = parse_opt()
     main(opt)
+    app.run(debug=True)
+
