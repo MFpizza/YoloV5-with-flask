@@ -84,7 +84,7 @@ def run(
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
         vid_stride=1,  # video frame-rate stride
-        queue = FQe
+        queue=None
 ):
     source = str(0)
     save_img = not nosave and not source.endswith('.txt')  # save inference images
@@ -304,5 +304,6 @@ if __name__ == "__main__":
     t.start()
 
     # main(opt)
-    app.run(debug=True,)
+    app.run()
     # input()
+    
