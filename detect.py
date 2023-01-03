@@ -33,6 +33,11 @@ import os
 import platform
 import sys
 from pathlib import Path
+from threading import Thread
+from queue import Queue
+import time
+
+FQe = Queue()
 
 import torch
 
@@ -79,8 +84,9 @@ def run(
         half=False,  # use FP16 half-precision inference
         dnn=False,  # use OpenCV DNN for ONNX inference
         vid_stride=1,  # video frame-rate stride
+        queue = FQe
 ):
-    source = str(source)
+    source = str(0)
     save_img = not nosave and not source.endswith('.txt')  # save inference images
     is_file = Path(source).suffix[1:] in (IMG_FORMATS + VID_FORMATS)
     is_url = source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
@@ -176,10 +182,9 @@ def run(
 
             # Stream results
             im0 = annotator.result()
-            ret,buffer=cv2.imencode('.jpg',im0)
-            frame=buffer.tobytes()
-            yield(b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+            if(queue.qsize()>3):
+                queue.get()
+            queue.put(im0)
 
             if view_img:
                 if platform.system() == 'Linux' and p not in windows:
@@ -209,7 +214,7 @@ def run(
                     vid_writer[i].write(im0)
 
         # Print time (inference-only)
-        LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
+        # LOGGER.info(f"{s}{'' if len(det) else '(no detections), '}{dt[1].dt * 1E3:.1f}ms")
 
     # Print results
     t = tuple(x.t / seen * 1E3 for x in dt)  # speeds per image
@@ -250,20 +255,37 @@ def parse_opt():
     parser.add_argument('--half', action='store_true', help='use FP16 half-precision inference')
     parser.add_argument('--dnn', action='store_true', help='use OpenCV DNN for ONNX inference')
     parser.add_argument('--vid-stride', type=int, default=1, help='video frame-rate stride')
+    parser.add_argument('--queue',type=Queue,default=FQe)
     opt = parser.parse_args()
     opt.imgsz *= 2 if len(opt.imgsz) == 1 else 1  # expand
     print_args(vars(opt))
     return opt
 
-
 def main(opt):
     check_requirements(exclude=('tensorboard', 'thop'))
-    run(**vars(opt))
+    
+    # run(**vars(opt))
+    Thread(target=lambda: run(**vars(opt))).start()
 
 from flask import Flask,render_template,Response
 import cv2
 
 app=Flask(__name__)
+
+def generate_frames():
+    global FQe
+    while True:
+        if FQe.empty():
+            print("not success")
+            time.sleep(2)
+            continue
+        else:
+            frame = FQe.queue[0]
+            ret,buffer=cv2.imencode('.jpg',frame)
+            frame=buffer.tobytes()
+
+            yield(b'--frame\r\n'
+                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
 @app.route('/')
 def index():
@@ -271,11 +293,16 @@ def index():
 
 @app.route('/video')
 def video():
-    return Response(run(**vars(opt)),mimetype='multipart/x-mixed-replace; boundary=frame')
+    return Response(generate_frames(),mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 if __name__ == "__main__":
     opt = parse_opt()
-    main(opt)
-    app.run(debug=True)
+    # Thread(target=lambda: app.run(debug=True,)).start()
+    t = Thread(target=lambda: run(queue=FQe))
+    # t.setDaemon(True)
+    t.start()
 
+    # main(opt)
+    app.run(debug=True,)
+    # input()
