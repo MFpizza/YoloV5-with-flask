@@ -38,7 +38,7 @@ from queue import Queue
 import time
 
 FQe = Queue()
-
+ban_label = [] 
 import torch
 
 FILE = Path(__file__).resolve()
@@ -54,6 +54,15 @@ from utils.general import (LOGGER, Profile, check_file, check_img_size, check_im
 from utils.plots import Annotator, colors, save_one_box
 from utils.torch_utils import select_device, smart_inference_mode
 
+
+def check_ban_list(_list, label):
+    i = 0 
+    size = len(_list)
+    while i < size :
+        if (_list[i] == label) :
+            return False
+        i = i + 1 
+    return True 
 
 @smart_inference_mode()
 def run(
@@ -176,7 +185,8 @@ def run(
                     if save_img or save_crop or view_img:  # Add bbox to image
                         c = int(cls)  # integer class
                         label = None if hide_labels else (names[c] if hide_conf else f'{names[c]} {conf:.2f}')
-                        annotator.box_label(xyxy, label, color=colors(c, True))
+                        if check_ban_list(ban_label, names[c]) == True:
+                            annotator.box_label(xyxy, label, color=colors(c, True))
                     if save_crop:
                         save_one_box(xyxy, imc, file=save_dir / 'crops' / names[c] / f'{p.stem}.jpg', BGR=True)
 
@@ -267,7 +277,7 @@ def main(opt):
     # run(**vars(opt))
     Thread(target=lambda: run(**vars(opt))).start()
 
-from flask import Flask,render_template,Response
+from flask import Flask,render_template,Response,request
 import cv2
 
 app=Flask(__name__)
@@ -287,23 +297,37 @@ def generate_frames():
             yield(b'--frame\r\n'
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
-@app.route('/')
+@app.route('/', methods=['POST', 'GET'])
 def index():
+    global ban_label
+    distrack_label = request.form.get("lb")
+    track_label = request.form.get("unlb")
+    if distrack_label :
+        ban_label.append(distrack_label)
+    elif track_label:
+        ban_label.remove(track_label)
+    else :
+        print("nothing!")
+    
     return render_template('index.html')
 
-@app.route('/video')
+@app.route('/video', methods=['POST', 'GET'])
 def video():
     return Response(generate_frames(),mimetype='multipart/x-mixed-replace; boundary=frame')
 
 
 if __name__ == "__main__":
-    opt = parse_opt()
-    # Thread(target=lambda: app.run(debug=True,)).start()
-    t = Thread(target=lambda: run(queue=FQe))
-    # t.setDaemon(True)
-    t.start()
-
-    # main(opt)
-    app.run()
-    # input()
+    try:
+        opt = parse_opt()
+        # Thread(target=lambda: app.run(debug=True,)).start()
+        t = Thread(target=lambda: run(queue=FQe))
+        t.setDaemon(True)
+        t.start()
+        # main(opt)
+        app.run()
+        # input()
+        while True:
+            pass
+    except KeyboardInterrupt:
+        print("byebye!")
     
