@@ -39,6 +39,7 @@ import time
 
 FQe = Queue()
 ban_label = [] 
+StopSync = False
 import torch
 
 FILE = Path(__file__).resolve()
@@ -283,7 +284,7 @@ import cv2
 app=Flask(__name__)
 
 def generate_frames():
-    global FQe
+    global FQe,StopSync
     while True:
         if FQe.empty():
             print("not success")
@@ -293,13 +294,15 @@ def generate_frames():
             frame = FQe.queue[0]
             ret,buffer=cv2.imencode('.jpg',frame)
             frame=buffer.tobytes()
-
+            while StopSync:
+                yield(b'--frame\r\n'
+                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
             yield(b'--frame\r\n'
-                   b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
+                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
 @app.route('/', methods=['POST', 'GET'])
 def index():
-    global ban_label
+    global ban_label,StopSync
     distrack_label = request.form.get("lb")
     track_label = request.form.get("unlb")
     if distrack_label :
@@ -308,6 +311,14 @@ def index():
         ban_label.remove(track_label)
     else :
         print("nothing!")
+    
+    if request.method == 'POST':
+        if request.form.get('action1') == 'Pause':
+            StopSync=True # do something
+        elif  request.form.get('action2') == 'Sync':
+            StopSync=False # do something else
+        else:
+            pass # unknown
     
     return render_template('index.html')
 
